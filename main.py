@@ -5,7 +5,7 @@ import numpy
 import os, os.path
 import cfg # Use the cfg.py file to configure LoFly generation
 import print_agent # Used to store all CLI printing stuff
-
+from pydub import AudioSegment
 SAMPLE_RATE = 44_100
 
 print_agent.opening()
@@ -113,6 +113,9 @@ def render_stems():
             out = numpy.concatenate((out, void.render(0 + 36, velocity, 4, 8))) 
             voidstart = numpy.concatenate([voidstart, void.render(0,0,1,predelay * 4),])
             voidend = numpy.concatenate([voidend, void.render(0,0,1, 16 - predelay * 4)])
+        out = numpy.concatenate((out, void.render(0 + 36, velocity, 4, 8))) 
+        voidstart = numpy.concatenate([voidstart, void.render(0,0,1,predelay * 4),])
+        voidend = numpy.concatenate([voidend, void.render(0,0,1, 16 - predelay * 4)])
         return numpy.hstack([voidstart, out, voidend])
     audio_pad = numpy.add(numpy.add(render_multinote(midi_chords[0], 0), render_multinote(midi_chords[1], 1)), numpy.add(render_multinote(midi_chords[2], 2), render_multinote(midi_chords[3], 3)))
     audio_pad *= cfg.pad_volume
@@ -131,28 +134,21 @@ def render_stems():
 
     wavfile.write('stems_bass.wav', SAMPLE_RATE, audio_bass.T)
 
-    audio_bass = numpy.vstack((void.render(1,1,0,24), audio_bass))
-    audio_bass = numpy.vstack((void.render(1,1,0,24), audio_bass))
-    audio_bass = numpy.vstack((void.render(1,1,0,24), audio_bass))
     print('Bass: completed')
     # render keys stem
 
     def render_multinote(inp, predelay): 
-        out = keys.render(inp[0] + 24, velocity, 4, 8)
+        start = random.uniform(0, cfg.max_random_start_time)
+        returns = numpy.hstack((void.render(0,0,1,12 - start), void.render(0,0,1,12 + start + 1 / 44100)))
+        print(len(inp))
         
-        voidend = void.render(0,0,1, 16 - predelay * 4)
-        for n in range(1, len(inp)):
+        for n in range(0, len(inp)):
             start = random.uniform(0, cfg.max_random_start_time)
-            i = inp[n]
-            out = numpy.concatenate((out, keys.render(i + 24, velocity, 4, 8))) 
-            voidstart = numpy.concatenate([voidstart, void.render(0,0,1,predelay * 4 + start),])
-            voidend = numpy.concatenate([voidend, void.render(0,0,1, 16 - predelay * 4 - start)])
+            returns = numpy.add(returns,numpy.hstack([void.render(0,0,1,predelay * 4 + start),keys.render(inp[n] + 24, velocity, 4, 8), void.render(0,0,1, 16 - predelay * 4 - start + 1 / 44100)]))
         if len(inp) == 3:
-            out = numpy.concatenate((out, void.render(0 + 24, velocity, 4, 8))) 
-            voidstart = numpy.concatenate([voidstart, void.render(0,0,1,predelay * 4),])
-            voidend = numpy.concatenate([voidend, void.render(0,0,1, 16 - predelay * 4)])
-        return numpy.hstack([voidstart, out, voidend])
-    audio_keys = numpy.add(numpy.add(render_multinote(midi_chords[0], 0), render_multinote(midi_chords[1], 1)), numpy.add(render_multinote(midi_chords[2], 2), render_multinote(midi_chords[3], 3)))
+            returns = numpy.add(returns, void.render(0,0,1,24))
+        return returns
+    audio_keys = numpy.concatenate((render_multinote(midi_chords[0], 0), render_multinote(midi_chords[1], 1),render_multinote(midi_chords[2], 2), render_multinote(midi_chords[3], 3)))
     audio_keys *= cfg.keys_volume
     wavfile.write('stems_keys.wav', SAMPLE_RATE, audio_keys.T)
     print('Keys: completed')
@@ -163,18 +159,15 @@ def render_stems():
 
     audio_lead = render_lead(midi_bassline)
     audio_lead *= cfg.lead_volume
-    audio_lead = numpy.vstack((void.render(1,1,0,24), audio_lead))
-    audio_lead = numpy.vstack((void.render(1,1,0,24), audio_lead))
-    audio_lead = numpy.vstack((void.render(1,1,0,24), audio_lead))
+
 
     wavfile.write('stems_lead.wav', SAMPLE_RATE, audio_lead.T)
     print('Lead: completed')
 
-    audio_full = numpy.add(audio_bass, audio_lead)
-    audio_full = numpy.add(audio_full, audio_keys)
-    audio_full = numpy.add(audio_full, audio_pad)
-    wavfile.write("full.wav", SAMPLE_RATE, audio_full.T)
-    print('Merged: completed')
+    infiles = ["stems_lead.wav", "stems_bass.wav", "stems_pad.wav", 'stems_keys.wav']
+    final = AudioSegment.from_wav("stems_lead.wav")
+    final.overlay(AudioSegment.from_wav("stems_bass.wav"), 0)
+    final.export("FULL.wav", 'wav')
 generate_midi()
 
 
